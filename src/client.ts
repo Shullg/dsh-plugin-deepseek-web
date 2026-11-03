@@ -37,7 +37,7 @@ const WARMUP_URL = 'https://chat.deepseek.com/robots.txt';
 const AUTH_KEY = 'dsh.deepseek-web.auth.v1';
 const AUTH_POLL_MS = 5000;
 const LEASE_NAME = 'dsh-plugin-deepseek-web';
-const DOUBLE_CLICK_MS = 175;
+const DOUBLE_CLICK_MS = 280;
 const ESCAPE_MARKER = '[dsh-plugin-deepseek-web] escape';
 
 let zh = true;
@@ -97,6 +97,7 @@ const COPY: Record<string, Record<string, string>> = {
   },
 };
 
+/** 文案取值：按当前语言取 key，缺英文回退中文，再缺返回 key 本身。 */
 function t(key: string): string {
   return (zh ? COPY.zh : COPY.en)[key] || COPY.zh[key] || key;
 }
@@ -115,6 +116,7 @@ const ICON_MARKUP = [
   '</svg>',
 ].join('');
 
+/** 生成 "DS" monogram 图标元素（纯内联 SVG，无外部资源）。 */
 function BrandGlyph(React: ReactLike) {
   return React.createElement('span', {
     className: 'dsh-deepseek-glyph',
@@ -203,7 +205,8 @@ function notifyTheme(): void {
 // ---------------------------------------------------------------------------
 // 登录态保存 / 恢复。
 // DeepSeek 把登录信息放在版本化 wrapper 中：userToken / __appKit_userInfo。
-// 只保存逻辑值（不保存 wrapper 文本），存到 DSH 文档 localStorage。
+// token 存逻辑值（纯字符串）；info 存原始 wrapper 文本（含 __version），
+// 因为 info 是对象，需要保留版本号才能被 DeepSeek 正确解析。
 // ---------------------------------------------------------------------------
 interface SavedAuth {
   token: string;
@@ -212,6 +215,7 @@ interface SavedAuth {
   infoVersion: string;
 }
 
+/** 从 DSH localStorage 读取已保存的登录态；损坏/过期时清除并返回 null。 */
 function readSavedAuth(): SavedAuth | null {
   try {
     const raw = localStorage.getItem(AUTH_KEY);
@@ -233,6 +237,7 @@ function readSavedAuth(): SavedAuth | null {
   }
 }
 
+/** 把登录态写入 DSH localStorage；info 限制 32KB 防止超大对象撑爆存储。 */
 function writeSavedAuth(token: string, tokenVersion: unknown, info: string | null, infoVersion: unknown): void {
   try {
     localStorage.setItem(
@@ -383,6 +388,7 @@ function installEscapeInPage(): boolean {
 }
 const ESCAPE_SOURCE = '(' + installEscapeInPage.toString() + ')()';
 
+/** 顶栏状态文字：根据面板阶段 + 登录态决定显示哪条文案。 */
 function statusText(phase: Phase, authState: AuthState): string {
   if (phase === 'starting') return t('connecting');
   if (phase === 'loading') return t('loading');
@@ -393,6 +399,7 @@ function statusText(phase: Phase, authState: AuthState): string {
   return t('loginOnce');
 }
 
+/** 顶栏状态指示灯颜色：ok=绿 / wait=蓝 / err=红。 */
 function statusTone(phase: Phase, authState: AuthState): 'ok' | 'wait' | 'err' {
   if (phase === 'ready') return authState === 'saved' || authState === 'restoring' ? 'ok' : 'wait';
   if (phase === 'error' || phase === 'unsupported') return 'err';
@@ -466,10 +473,12 @@ function svgIcon(React: ReactLike, paths: string[]): any {
 // ---------------------------------------------------------------------------
 // 右侧栏 Tab 相关（读取/打开/关闭）
 // ---------------------------------------------------------------------------
+/** 获取右侧栏服务；未就绪返回 null。 */
 function getSidebar(): any {
   return rootCtx && typeof rootCtx.get === 'function' ? rootCtx.get('sidebarRight') : null;
 }
 
+/** 列出当前会话里所有本插件注册的 Tab。 */
 function deepSeekTabs(): any[] {
   const sidebar = getSidebar();
   if (!sidebar) return [];
@@ -499,6 +508,7 @@ function deepSeekTabs(): any[] {
   return [];
 }
 
+/** 当前激活的 Tab 是否是本插件的；不是则返回 null。 */
 function activeDeepSeekTab(): any {
   const sidebar = getSidebar();
   if (!sidebar || typeof sidebar.active !== 'function') return null;
@@ -511,6 +521,7 @@ function activeDeepSeekTab(): any {
   return null;
 }
 
+/** 判断 DeepSeek 面板是否已展开可见。 */
 function isDeepSeekOpen(): boolean {
   const sidebar = getSidebar();
   if (!sidebar) return false;
@@ -522,6 +533,7 @@ function isDeepSeekOpen(): boolean {
   }
 }
 
+/** 在 DOM 中找到当前可见的右侧栏面板元素（跳过 aria-hidden 的）。 */
 function currentPanelElement(): HTMLElement | null {
   const sidebar = getSidebar();
   let sessionId: string | undefined;
@@ -543,6 +555,7 @@ function currentPanelElement(): HTMLElement | null {
   return null;
 }
 
+/** 关闭右侧栏面板：优先点 DSH 自带的 toggle 按钮，回退到 sidebar.toggleExpanded。 */
 function closeDeepSeek(): boolean {
   cancelScheduledClick();
   lastTriggerClickAt = 0;
@@ -615,6 +628,7 @@ function schedulePanelMode(wantFullscreen: boolean, attempt = 0): void {
 }
 
 function applyPanelMode(wantFullscreen: boolean, attempt = 0): void {
+  if (disposedTrigger) return;
   const sidebar = getSidebar();
   if (!sidebar || typeof sidebar.isExpanded !== 'function' || sidebar.isExpanded() !== true) return;
   if (window.innerWidth < 768) return;
@@ -645,6 +659,11 @@ function applyPanelMode(wantFullscreen: boolean, attempt = 0): void {
   }
 }
 
+/**
+ * 打开 DeepSeek 右侧栏 Tab。
+ * 若当前没有打开任何会话，先尝试 startSession；openTab 失败时最多重试 20 次（200ms 间隔）。
+ * wantFullscreen=true 时（双击触发）打开后自动切换全屏。
+ */
 function openDeepSeek(wantFullscreen = false): void {
   cancelScheduledClick();
   const sidebar = getSidebar();
@@ -741,6 +760,7 @@ function flashTrigger(message: string): void {
   }, 2600);
 }
 
+/** 在 DOM 中定位最左侧的侧边栏列容器（Activity Bar 区域），作为插入触发按钮的范围。 */
 function findSidebarScope(): HTMLElement {
   let best: HTMLElement | null = null;
   let bestLeft = Infinity;
@@ -761,6 +781,7 @@ function insideRightSidebar(element: Element | null): boolean {
   return !!(element && typeof element.closest === 'function' && element.closest('[data-sidebar-right-session]'));
 }
 
+/** 从左侧 tree 组件向上找 sectionHeader 节点（DSH 没有暴露区头槽位，只能 DOM 探测）。 */
 function headerFromTree(scope: HTMLElement): HTMLElement | null {
   const trees = scope.querySelectorAll('[role="tree"]');
   for (const tree of trees) {
@@ -779,6 +800,7 @@ function headerFromTree(scope: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/** 按已知区头文案（多语言）匹配 sectionHeader 元素。 */
 function headerByLabel(scope: HTMLElement): HTMLElement | null {
   for (const header of scope.querySelectorAll('[class*="sectionHeader"]')) {
     if (insideRightSidebar(header)) continue;
@@ -791,6 +813,7 @@ function headerByLabel(scope: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/** 综合两种策略找到「工作区」区头：优先 tree 向上找，其次按文案匹配。 */
 function findWorkspaceHeader(): HTMLElement | null {
   const scope = findSidebarScope();
   return headerFromTree(scope) || headerByLabel(scope);
@@ -862,6 +885,7 @@ function onDomMutations(records: MutationRecord[]): void {
   }
 }
 
+/** 构建左侧触发按钮 DOM；无桌面桥时禁用。单击切换面板，双击全屏。 */
 function buildTrigger(): void {
   triggerHost = document.createElement('div');
   triggerHost.className = 'dsh-deepseek-trigger-host';
@@ -906,6 +930,12 @@ function buildTrigger(): void {
 // ---------------------------------------------------------------------------
 // 面板组件（React）
 // ---------------------------------------------------------------------------
+/**
+ * DeepSeek 右侧栏面板 React 组件。
+ * 生命周期：申请 webview 租约 → 创建 <webview> 加载 about:blank#lease →
+ * warmup robots.txt 后注入登录态 → 跳转到 START_URL → did-finish-load 后恢复 token + 主题。
+ * 卸载时释放租约、清理所有定时器/观察者/webview 元素。
+ */
 function DeepSeekPanel(React: ReactLike, props: any): any {
   const h = React.createElement;
   const hostRef = React.useRef<HTMLElement | null>(null);
@@ -956,20 +986,23 @@ function DeepSeekPanel(React: ReactLike, props: any): any {
         const stage = host.parentElement as HTMLElement | null;
         const rect = (stage || host).getBoundingClientRect();
         const w = Math.max(0, Math.round(rect.width));
-        const h = Math.max(0, Math.round(window.innerHeight - rect.top));
+        // 高度优先用 stage 自身 rect.height（语义正确）；但面板展开动画期间
+        // DSH 会把 stage 算成内容高度（~250px），此时回退到 innerHeight - top。
+        let h = Math.max(0, Math.round(rect.height));
+        if (h < 300) h = Math.max(0, Math.round(window.innerHeight - rect.top));
         if (w < 20 || h < 20) return;
-        // 给父容器（mount）写死 px，webview 的 width:100%/height:100% 自然跟随。
-        // 直接给 webview 写 inline px 在 DSH 的 webview 上不生效（guest 不重测）。
+        // 给 mount 写死 px，webview 的 width:100%/height:100% 自然跟随。
         host.style.width = w + 'px';
         host.style.height = h + 'px';
         host.style.left = '0px';
         host.style.top = '0px';
-        // Electron 标准 API：显式把 guest 视口设成这个像素尺寸
+        // 标准 Electron <webview> 没有 setSize（那是 BrowserView/BrowserWindow 的）。
+        // 仅当 DSH 桌面端注入了该扩展时才使用；主要重排机制是 host 写 px + 一像素抖动。
         const anyView = view as any;
         if (typeof anyView.setSize === 'function') {
           try { anyView.setSize({ normal: { width: w, height: h } }); } catch { /* noop */ }
         }
-        // 高度变化时做一像素抖动，逼 Chromium 重排
+        // 仅在尺寸真正变化时做一像素抖动逼 Chromium 重排；不回顶——保留用户滚动位置。
         if (appliedH !== h || appliedW !== w) {
           appliedW = w;
           appliedH = h;
@@ -978,7 +1011,6 @@ function DeepSeekPanel(React: ReactLike, props: any): any {
             if (!disposed && view) host.style.height = h + 'px';
           });
         }
-        try { view!.executeJavaScript('try{window.scrollTo(0,0)}catch(e){}', false); } catch { /* noop */ }
       } catch { /* noop */ }
     };
     const scheduleSizeSync = (): void => {
@@ -1237,7 +1269,10 @@ function DeepSeekPanel(React: ReactLike, props: any): any {
         scheduleSizeSync();
         if (typeof ResizeObserver === 'function') {
           sizeObserver = new ResizeObserver(() => { if (!disposed) syncGuestSize(); });
-          try { sizeObserver.observe(host); } catch { /* noop */ }
+          // mount 自身被写死了 px 尺寸，监听 mount 收不到 stage 缩放；
+          // 必须监听 stage（mount 的父容器），面板拖拽/窗口缩放时 stage 才会变化。
+          const sizeTarget = host.parentElement || host;
+          try { sizeObserver.observe(sizeTarget); } catch { /* noop */ }
         }
         poll = window.setInterval(() => {
           if (!disposed && pageRequested && view) void updateAuth(view);
@@ -1382,6 +1417,7 @@ function onWebViewEvent(
 // ---------------------------------------------------------------------------
 // 注册右侧栏 Tab
 // ---------------------------------------------------------------------------
+/** 向 DSH 注册右侧栏 Tab 类型 + 面板渲染槽位。 */
 function registerSidebar(ctx: DSHClientContext, React: ReactLike): void {
   ctx.inject(['sidebarRightTabs', 'sidebarRight'], (scope) => {
     const tabs = scope.get('sidebarRightTabs');
