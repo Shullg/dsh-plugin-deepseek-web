@@ -1,0 +1,7 @@
+# Bundle patch：把本插件插入 DSH profile。
+# 这一行同时挂载双半结构的两半：
+#   - host 半部（lib/index.js，Node 侧 Cordis bundle，仅生命周期占位）
+#   - client 半部（lib/client.js，经 package.json 的 dsh.client 被浏览器加载器发现）
+- insert:
+    - id: deepseek-web
+      name: '@local/dsh-plugin-deepseek-web'

@@ -1,0 +1,14 @@
+# Build output
+lib/
+*.tsbuildinfo
+
+# Node
+node_modules/
+
+# DSH local profile (never commit tokens / sessions)
+.profile/
+.dsh/
+
+# OS
+.DS_Store
+Thumbs.db

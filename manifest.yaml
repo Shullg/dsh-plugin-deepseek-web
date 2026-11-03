@@ -1,0 +1,60 @@
+# =============================================================================
+# dsh-plugin-deepseek-web — 能力清单（manifest）
+#
+# 注意：本文件是**信息性/文档性**的能力清单，供开发者与审阅者快速了解插件
+# 的挂载点、权限与入口。DeepSeek Harness (DSH) 的实际加载不读取本文件——
+# 它由 package.json 的 `dsh` 块（bundle patch、client inject）与
+# `cordis.patch.yml`（bundle 插入 profile）共同驱动，这两处才是权威配置。
+# 修改挂载点/依赖时请同时更新 package.json、cordis.patch.yml 与本清单。
+# =============================================================================
+
+id: @local/dsh-plugin-deepseek-web
+name: dsh-plugin-deepseek-web
+version: 0.1.0
+license: MIT
+runtime: deepseek-harness
+
+# DSH 引擎版本兼容范围（与 package.json 的 dsh.engines.dsh 保持一致）
+engines:
+  dsh: ^0.2.1-rc.3
+  platform: desktop   # 依赖桌面端隔离 webview 与 dshDesktop.browser 桥
+
+# 双半结构入口（TS 源码 -> 编译产物）
+entries:
+  host:   lib/index.js     # src/host.ts 编译产物；Node 侧生命周期占位
+  client: lib/client.js    # src/client.ts 编译产物；浏览器侧 UI 与 webview
+
+# 挂载点（DSH 客户端槽位）
+mounts:
+  - slot: sidebarRightTabs          # 注册右侧栏 Tab 类型（kind: deepseek-web）
+    key: '@local/dsh-plugin-deepseek-web/panel'
+  - slot: sidebar.right.pane.tab    # Tab 面板正文（承载 webview）
+    key: '@local/dsh-plugin-deepseek-web/panel'
+  - seat: workspace-section         # 左侧「工作区」区头上方的触发按钮（DOM 插入，非槽位）
+
+# 运行时能力（本插件实际使用到的 DSH 私有桥 / 注入）
+capabilities:
+  desktop-browser-bridge:
+    - window.dshDesktop.browser.acquire(lease)   # 获取隔离 guest 租约（lease + partition）
+    - window.dshDesktop.browser.release(lease)   # 释放租约、关闭 guest
+    - window.dshDesktop.browser.onOpenRequested  # （可选）网页内新窗口弹出回调
+  client-inject:
+    - '@deepseek-ai/dsh-client-ui-sidebar'
+    - '@deepseek-ai/dsh-client-ui-sidebar-right'
+    - '@deepseek-ai/dsh-client-ui-workspace'
+
+# 网页承载（核心约束）
+webview:
+  engine: electron-webview     # 原生 <webview>，绝不用 <iframe>
+  start: https://chat.deepseek.com/
+  allowpopups: true            # 支持网页内新窗口（如 OAuth 登录）
+  partition: bridge-reserved   # partition 由 desktop browser 桥按租约协议返回；
+                               # 桌面端强制进程级分区，不能用 persist: 覆盖（详见 README）
+  session-persistence: token-restore   # 通过保存/恢复 DeepSeek 登录 token 实现重启不掉登录
+
+# 安全边界
+security:
+  no-host-routes: true                 # 不注册任何 Host HTTP 路由
+  no-harness-credentials: true         # 不读取/传递 Harness API Key 与账号凭证
+  guest-sandboxed: true                # guest 无 Node/preload/webviewTag，权限默认拒绝
+  token-storage: dsh-renderer-localstorage   # 网页登录 token 仅存本机 DSH 渲染进程 localStorage
