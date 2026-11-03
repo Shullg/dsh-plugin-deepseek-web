@@ -1433,8 +1433,9 @@ function registerSidebar(ctx: DSHClientContext, React: ReactLike): void {
         }),
       'deepseek-web: tab type',
     );
+    if (!scope.slots) return;
     scope.slots.inject('sidebar.right.pane.tab', () =>
-      scope.slots.register(
+      scope.slots!.register(
         { name: 'sidebar.right.pane.tab', key: TYPE_ID },
         (props: any) => DeepSeekPanel(React, props),
       ),
@@ -1587,13 +1588,20 @@ function createApply(React: ReactLike): (ctx: DSHClientContext) => void {
 // factory 由加载器注入 require：react 等来自 DSH 浏览器模块表，不打包。
 // 注意：本文件不得出现顶层 import/export，编译产物必须是单文件纯脚本。
 // ---------------------------------------------------------------------------
-window.__ModuleLoader__.load({
-  id: '@local/dsh-plugin-deepseek-web',
-  factory(requireFn: ModuleRequire) {
-    const React = requireFn('react') as ReactLike;
-    return {
-      inject: ['slots'],
-      apply: createApply(React),
-    };
-  },
-});
+const dshLoader = window.__ModuleLoader__;
+if (!dshLoader) {
+  // 旧版 DSH 不提供 client 模块加载器时静默退出，不抛错整包白屏。
+  // eslint-disable-next-line no-console
+  console.warn('[dsh-plugin-deepseek-web] 当前 DSH 版本不提供 client 模块加载器，插件未激活');
+} else {
+  dshLoader.load({
+    id: '@local/dsh-plugin-deepseek-web',
+    factory(requireFn: ModuleRequire) {
+      const React = requireFn('react') as ReactLike;
+      return {
+        inject: ['slots'],
+        apply: createApply(React),
+      };
+    },
+  });
+}
