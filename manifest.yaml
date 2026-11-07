@@ -16,7 +16,7 @@ runtime: deepseek-harness
 
 # DSH 引擎版本兼容范围（与 package.json 的 dsh.engines.dsh 保持一致）
 engines:
-  dsh: ^0.2.1-rc.3
+  dsh: ">=0.2.1-rc.3"
   platform: desktop   # 依赖桌面端隔离 webview 与 dshDesktop.browser 桥
 
 # 双半结构入口（TS 源码 -> 编译产物）
